@@ -10,14 +10,13 @@ async function isUser(req, res, next) {
   try {
     const decoded = jwt.verify(token, process.env.JWT_TOKEN);
 
-    // Check if the user is an admin
     const user = await User.findById(decoded.userId);
 
     if (!User) { 
       return res.status(403).json({ message: 'User access denied' });
     }
 
-    // Attach the admin's ID to the request object for future use
+   
     req.adminId = User._id;
     next();
   } catch (error) {

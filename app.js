@@ -15,5 +15,5 @@ app.use("/user",user);
 app.use("/recipe",recipe);
 
 app.listen(PORT,()=>{
-    console.log("app is running 9000");
+    console.log(`app is running ${PORT}`);
 })

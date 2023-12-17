@@ -1,27 +1,15 @@
 const express = require('express');
 const router = express.Router();
+const client = require('./RedisClient');
 const Recipe = require('../models/Reciepe');
 const isUser= require("../middlewares/userAuthentication")
 const multer = require('multer');
+
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
 router.post('/create',isUser, async (req, res) => {
   const { title, description, ingredients, steps, imageUrl, createdBy } = req.body;
     try {
-     // const binaryImageData = Buffer.from(imageUrl, 'base64');
-    //  const bufferData = Buffer.from(imageUrl, 'base64');
-
-      
-
-// // Compress the data
-// const compressedData = zlib.deflateSync(bufferData);
-
-// // Decompress the data
-// const decompressedData = zlib.inflateSync(compressedData);
-
-// // Convert decompressed Buffer back to Base64
-// const decompressedBase64 = decompressedData.toString('base64');
-
       const recipe = new Recipe({
         title,
         description,
@@ -33,7 +21,7 @@ router.post('/create',isUser, async (req, res) => {
   
       // Save the recipe to the database
       const savedRecipe = await recipe.save();
-  
+      await client.del('recipes');
       res.status(201).json(savedRecipe);
     } catch (error) {
       console.error('Error creating recipe:', error);
@@ -43,7 +31,14 @@ router.post('/create',isUser, async (req, res) => {
   
   router.get('/getAll', async (req, res) => {
     try {
+      const cachedRecipes = await client.get('recipes');
+
+      if (cachedRecipes) {
+        console.log('Data from Redis cache');
+        return res.json(JSON.parse(cachedRecipes));
+      }
       const recipes = await Recipe.find().populate('createdBy', 'username');
+      await client.set('recipes', JSON.stringify(recipes), 'EX', 300);
       res.json(recipes);
     } catch (error) {
       console.error('Error getting recipes:', error);
@@ -52,13 +47,24 @@ router.post('/create',isUser, async (req, res) => {
   });
 
   router.get('/get/:recipeId',isUser, async (req, res) => {
+    const { recipeId } = req.params;
     try {
+      const cachedRecipe = await client.get(`recipe:${recipeId}`);
+
+    if (cachedRecipe) {
+      // If the recipe is found in the cache, return it
+      console.log("data from redis")
+      return res.json(JSON.parse(cachedRecipe));
+    }
+
       const recipe = await Recipe.findById(req.params.recipeId).populate('createdBy', 'username');
   
       if (!recipe) {
         return res.status(404).json({ error: 'Recipe not found' });
       }
-  
+      await client.set(`recipe:${recipeId}`, JSON.stringify(recipe));
+      // Set an expiration time for the cache (adjust the time based on your requirements)
+      await client.expire(`recipe:${recipeId}`, 300); 
       res.json(recipe);
     } catch (error) {
       console.error('Error getting recipe:', error);
@@ -67,8 +73,15 @@ router.post('/create',isUser, async (req, res) => {
   });
 
   router.put('/:recipeId',isUser, async (req, res) => {
+    const { recipeId } = req.params;
     try {
       const { title, description, ingredients, steps, imageUrl } = req.body;
+      const isCached = await client.exists(`recipe:${recipeId}`);
+
+      if (isCached) {
+        // If the recipe is in the cache, delete it
+        await client.del(`recipe:${recipeId}`);
+      }
   
       const updatedRecipe = await Recipe.findByIdAndUpdate(
         req.params.recipeId,
@@ -88,7 +101,15 @@ router.post('/create',isUser, async (req, res) => {
   });
 
   router.delete('/:recipeId', isUser,async (req, res) => {
+    const { recipeId } = req.params;
     try {
+      const isCached = await client.exists(`recipe:${recipeId}`);
+
+      if (isCached) {
+        // If the recipe is in the cache, delete it
+        await client.del(`recipe:${recipeId}`);
+        console.log("delete the cache value")
+      }
       const deletedRecipe = await Recipe.findByIdAndDelete(req.params.recipeId);
   
       if (!deletedRecipe) {
@@ -106,7 +127,7 @@ router.post('/create',isUser, async (req, res) => {
     try {
         const { query } = req.query;
     
-        // Use a regular expression to perform a case-insensitive search
+        
         const recipes = await Recipe.find({
           $or: [
             { title: { $regex: query, $options: 'i' } },

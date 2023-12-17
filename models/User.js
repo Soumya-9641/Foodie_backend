@@ -8,7 +8,7 @@ const userProfileSchema = new mongoose.Schema({
     required: true,
     
   }
-  // Add more fields as needed (e.g., profile picture, age, etc.)
+  
 });
 
 const UserProfile = mongoose.model('UserProfile', userProfileSchema);
